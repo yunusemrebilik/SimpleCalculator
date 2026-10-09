@@ -33,6 +33,10 @@ func toAPIError(err error) *apiError {
 		return apiErr
 	case errors.Is(err, calc.ErrDivisionByZero):
 		return &apiError{Status: http.StatusUnprocessableEntity, Code: "DIVISION_BY_ZERO", Message: err.Error()}
+	case errors.Is(err, calc.ErrNegativeSqrt):
+		return &apiError{Status: http.StatusUnprocessableEntity, Code: "NEGATIVE_SQRT", Message: err.Error()}
+	case errors.Is(err, calc.ErrUndefined):
+		return &apiError{Status: http.StatusUnprocessableEntity, Code: "UNDEFINED_RESULT", Message: err.Error()}
 	case errors.Is(err, calc.ErrOutOfRange):
 		return &apiError{Status: http.StatusUnprocessableEntity, Code: "RESULT_OUT_OF_RANGE", Message: err.Error()}
 	default:

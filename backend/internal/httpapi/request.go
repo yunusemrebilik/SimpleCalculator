@@ -11,23 +11,20 @@ import (
 
 const maxBodyBytes = 1 << 10
 
-type operandsRequest struct {
+type binaryRequest struct {
 	A json.RawMessage `json:"a"`
 	B json.RawMessage `json:"b"`
 }
 
-func decodeOperands(w http.ResponseWriter, r *http.Request) (a, b float64, err error) {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
-	dec.DisallowUnknownFields()
+type unaryRequest struct {
+	A json.RawMessage `json:"a"`
+}
 
-	var req operandsRequest
-	if err := dec.Decode(&req); err != nil {
-		return 0, 0, decodeError(err)
+func decodeBinary(w http.ResponseWriter, r *http.Request) (a, b float64, err error) {
+	var req binaryRequest
+	if err := decodeRequest(w, r, &req, `{"a": 1, "b": 2}`); err != nil {
+		return 0, 0, err
 	}
-	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return 0, 0, invalidJSON("request body must contain a single JSON object")
-	}
-
 	if a, err = parseOperand("a", req.A); err != nil {
 		return 0, 0, err
 	}
@@ -37,12 +34,34 @@ func decodeOperands(w http.ResponseWriter, r *http.Request) (a, b float64, err e
 	return a, b, nil
 }
 
-func decodeError(err error) *apiError {
+func decodeUnary(w http.ResponseWriter, r *http.Request) (float64, error) {
+	var req unaryRequest
+	if err := decodeRequest(w, r, &req, `{"a": 1}`); err != nil {
+		return 0, err
+	}
+	return parseOperand("a", req.A)
+}
+
+// decodeRequest decodes exactly one JSON object with no unknown fields into dst.
+func decodeRequest(w http.ResponseWriter, r *http.Request, dst any, example string) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(dst); err != nil {
+		return decodeError(err, example)
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return invalidJSON("request body must contain a single JSON object")
+	}
+	return nil
+}
+
+func decodeError(err error, example string) *apiError {
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {
 		return invalidJSON(fmt.Sprintf("request body must not exceed %d bytes", maxBytesErr.Limit))
 	}
-	return invalidJSON(`request body must be a JSON object like {"a": 1, "b": 2}`)
+	return invalidJSON("request body must be a JSON object like " + example)
 }
 
 // parseOperand works on the raw value so that strings, booleans and

@@ -9,11 +9,14 @@ import (
 	"simplecalculator/internal/calc"
 )
 
-var operations = map[string]calc.BinaryOp{
-	"add":      calc.Add,
-	"subtract": calc.Subtract,
-	"multiply": calc.Multiply,
-	"divide":   calc.Divide,
+var operations = map[string]http.HandlerFunc{
+	"add":      binary(calc.Add),
+	"subtract": binary(calc.Subtract),
+	"multiply": binary(calc.Multiply),
+	"divide":   binary(calc.Divide),
+	"power":    binary(calc.Power),
+	"sqrt":     unary(calc.Sqrt),
+	"percent":  unary(calc.Percent),
 }
 
 type resultResponse struct {
@@ -39,19 +42,39 @@ func NewHandler(static http.Handler) http.Handler {
 }
 
 func handleOperation(w http.ResponseWriter, r *http.Request) {
-	op, ok := operations[r.PathValue("op")]
+	handle, ok := operations[r.PathValue("op")]
 	if !ok {
 		writeError(w, errNotFound)
 		return
 	}
+	handle(w, r)
+}
 
-	a, b, err := decodeOperands(w, r)
-	if err != nil {
-		writeError(w, err)
-		return
+func binary(op calc.BinaryOp) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		a, b, err := decodeBinary(w, r)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		result, err := op(a, b)
+		writeResult(w, result, err)
 	}
+}
 
-	result, err := op(a, b)
+func unary(op calc.UnaryOp) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		a, err := decodeUnary(w, r)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		result, err := op(a)
+		writeResult(w, result, err)
+	}
+}
+
+func writeResult(w http.ResponseWriter, result float64, err error) {
 	if err != nil {
 		writeError(w, err)
 		return

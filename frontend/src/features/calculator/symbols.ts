@@ -1,12 +1,19 @@
-import type { Operation } from '../../api/calculatorApi';
+import type { BinaryOperation, UnaryOperation } from '../../api/calculatorApi';
 
-export type Operator = Operation;
+export type Operator = BinaryOperation;
+export type UnaryOperator = UnaryOperation;
 
 export const OPERATOR_SYMBOLS: Record<Operator, string> = {
   add: '+',
   subtract: '−',
   multiply: '×',
   divide: '÷',
+  power: '^',
+};
+
+export const UNARY_SYMBOLS: Record<UnaryOperator, string> = {
+  sqrt: '√',
+  percent: '%',
 };
 
 export const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;

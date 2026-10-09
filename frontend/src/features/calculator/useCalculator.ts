@@ -1,6 +1,6 @@
 import { useEffect, useReducer } from 'react';
 import { calculate } from '../../api/calculatorApi';
-import { calculatorReducer, displayText, initialState, type InputAction } from './calculatorReducer';
+import { calculatorReducer, displayText, initialState, type InputAction, toRequest } from './calculatorReducer';
 import { toErrorMessage } from './errorMessage';
 import { keyToAction } from './keyboard';
 
@@ -15,17 +15,19 @@ export interface Calculator {
 
 export function useCalculator(): Calculator {
   const [state, dispatch] = useReducer(calculatorReducer, initialState);
-  const { status, left, operator, right } = state;
+  const { status, left, operator, right, unary } = state;
 
   useEffect(() => {
-    if (status !== 'loading' || operator === null) return;
+    if (status !== 'loading') return;
+    const request = toRequest({ left, operator, right, unary });
+    if (request === null) return;
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => {
       controller.abort();
       dispatch({ type: 'calculationFailed', error: 'Request timed out. Please try again.' });
     }, REQUEST_TIMEOUT_MS);
-    calculate(operator, Number(left), Number(right), controller.signal)
+    calculate(request, controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) dispatch({ type: 'calculationSucceeded', result: value });
       })
@@ -38,7 +40,7 @@ export function useCalculator(): Calculator {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [status, left, operator, right]);
+  }, [status, left, operator, right, unary]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {

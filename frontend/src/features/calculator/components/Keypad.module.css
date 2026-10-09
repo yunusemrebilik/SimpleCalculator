@@ -55,3 +55,7 @@
   grid-column: span 2;
   aspect-ratio: auto;
 }
+
+.newRow {
+  grid-column-start: 1;
+}

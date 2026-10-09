@@ -81,14 +81,14 @@ Current coverage:
 | Package / area              | Coverage              |
 |-----------------------------|-----------------------|
 | `backend/internal/calc`     | 100% statements       |
-| `backend/internal/httpapi`  | 94.4% statements      |
+| `backend/internal/httpapi`  | 95.6% statements      |
 | `frontend/src` (all files)  | 99.35% statements, 98.41% branches, 100% lines |
 
 `cmd/server` contains only wiring and is covered by manual and end-to-end runs rather than unit tests.
 
 ## API
 
-Each operation has its own endpoint. All of them take `POST` with a JSON body `{"a": number, "b": number}`.
+Each operation has its own endpoint. All of them take `POST`. Binary operations take `{"a": number, "b": number}`, and unary operations take `{"a": number}`.
 
 | Method | Path               | Operation |
 |--------|--------------------|-----------|
@@ -96,6 +96,9 @@ Each operation has its own endpoint. All of them take `POST` with a JSON body `{
 | POST   | `/api/v1/subtract` | a − b     |
 | POST   | `/api/v1/multiply` | a × b     |
 | POST   | `/api/v1/divide`   | a ÷ b     |
+| POST   | `/api/v1/power`    | a ^ b     |
+| POST   | `/api/v1/sqrt`     | √a        |
+| POST   | `/api/v1/percent`  | a ÷ 100   |
 | GET    | `/healthz`         | liveness  |
 
 ### Examples
@@ -106,6 +109,9 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 
 $ curl -s -X POST localhost:8080/api/v1/divide -H 'Content-Type: application/json' -d '{"a": 12.5, "b": 4}'
 {"result":3.125}
+
+$ curl -s -X POST localhost:8080/api/v1/sqrt -H 'Content-Type: application/json' -d '{"a": 9}'
+{"result":3}
 
 $ curl -s -X POST localhost:8080/api/v1/divide -H 'Content-Type: application/json' -d '{"a": 1, "b": 0}'
 {"error":{"code":"DIVISION_BY_ZERO","message":"division by zero is not allowed"}}
@@ -118,20 +124,23 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 
 | Code                  | HTTP | When                                                        |
 |-----------------------|------|-------------------------------------------------------------|
-| `INVALID_JSON`        | 400  | Malformed or oversized (> 1 KiB) body, wrong types, unknown fields, trailing data |
-| `MISSING_OPERAND`     | 400  | `a` or `b` is absent or `null`                              |
+| `INVALID_JSON`        | 400  | Malformed or oversized (> 1 KiB) body, wrong types, unknown fields (including `b` on a unary operation), trailing data |
+| `MISSING_OPERAND`     | 400  | A required operand is absent or `null`                      |
 | `INVALID_NUMBER`      | 400  | Number outside the `float64` range (e.g. `1e400`)           |
 | `DIVISION_BY_ZERO`    | 422  | `b == 0` on divide                                          |
+| `NEGATIVE_SQRT`       | 422  | `a < 0` on sqrt                                             |
+| `UNDEFINED_RESULT`    | 422  | Power without a real result (`0 ^ -1`, `(-8) ^ 0.5`)        |
 | `RESULT_OUT_OF_RANGE` | 422  | Result overflows to ±Inf (e.g. `1e308 × 10`)                |
 | `NOT_FOUND`           | 404  | Unknown operation or API path                               |
 | `METHOD_NOT_ALLOWED`  | 405  | Non-POST request to an operation (sets `Allow: POST`)       |
 
 ## Using the Calculator
 
-- **Input:** use the keypad, or the keyboard: `0-9`, `.`, `+`, `-`, `*`, `/`, `Enter` or `=`, `Backspace`, and `Escape` to clear. When a keypad button has focus, `Enter` or Space activates that button; `=` always submits the expression.
+- **Input:** use the keypad, or the keyboard: `0-9`, `.`, `+`, `-`, `*`, `/`, `^` (power), `@` (square root), `%` (percent), `Enter` or `=`, `Backspace`, and `Escape` to clear. When a keypad button has focus, `Enter` or Space activates that button; `=` always submits the expression.
 - **Negative numbers:** `-` on an empty number makes it negative (`12 − -3`). `±` toggles the sign.
-- **One operation per request:** pressing another operator once both numbers are entered shows "Calculate the current operation first".
-- **Results:** a result is shown as `12 ÷ 4 = 3`. Typing a digit starts over, and pressing an operator continues from the result.
+- **Square root and percent:** type the number, then `√` or `%`, then `=`: `9 √ =` shows `√9 = 3`, and `70 % =` shows `70% = 0.7`. Percent is always `a ÷ 100`.
+- **One operation per request:** pressing another operator once both numbers are entered shows "Calculate the current operation first". `√` and `%` can't be combined with a binary operation (`200 + 10%` is rejected); use the result instead: `10 % =`, then `× 200 =`.
+- **Results:** a result is shown as `12 ÷ 4 = 3`. Typing a digit starts over, and pressing an operation key continues from the result.
 - **Errors:** errors appear below the display without clearing it, so the input can be fixed and resent.
 
 ## Design Decisions
@@ -139,7 +148,7 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 **Backend**
 
 - **No dependencies.** Go 1.22's `http.ServeMux` method and wildcard patterns (`POST /api/v1/{op}`) cover the routing.
-- **Pure domain package.** `calc` exposes one `func(a, b float64) (float64, error)` per operation and knows nothing about HTTP. The handler looks up `{op}` in a registry map, so adding an operation means writing one function and adding one map entry.
+- **Pure domain package.** `calc` exposes one `func(a, b float64) (float64, error)` or `func(a float64) (float64, error)` per operation and knows nothing about HTTP. The handler looks up `{op}` in a registry of handlers built by `binary(...)` and `unary(...)` adapters, so adding an operation means writing one function and adding one map entry.
 - **Strict input validation.** Operands are decoded as raw JSON so the API can tell these apart: missing or `null` (`MISSING_OPERAND`), non-numeric (`INVALID_JSON`), and out-of-range numbers (`INVALID_NUMBER`). Unknown fields, trailing data and bodies over 1 KiB are rejected.
 - **Domain errors return 422.** The request is well-formed but can't be computed. Non-finite results are rejected, and `-0` is returned as `0`.
 - **Single error-mapping point.** All errors go through `toAPIError`, so status codes and error codes are defined in one place.
@@ -147,7 +156,7 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 
 **Frontend**
 
-- **Structured input instead of free text.** The state holds separate `left`, `operator` and `right` values rather than an expression string. Since the API takes `a op b`, the UI builds that shape directly, so there's no parsing, tokenizing or spacing rule. A unary minus is just a `-` prefix on one value.
+- **Structured input instead of free text.** The state holds separate `left`, `operator`, `right` and `unary` values rather than an expression string. Since the API takes `a op b` or `op a`, the UI builds that shape directly, so there's no parsing, tokenizing or spacing rule. A unary minus is just a `-` prefix on one value.
 - **The frontend never computes.** It only edits operand strings and calls the API. It does round results for display only: at most 12 significant digits, trailing zeros dropped, never `-0`.
 - **Full-precision chaining.** The raw API result is stored separately from its display formatting. For example, `1 ÷ 3 = 0.333333333333`, then `× 3` gives `1`. Reusing or editing a result exposes its full-precision decimal operand; formatting never changes the value sent to the API. Small nonzero values remain visible, e.g. `1 ÷ 1000000 = 0.000001`.
 - **Pure reducer plus a thin hook.** All input rules live in `calculatorReducer.ts`, which is a pure function and is exhaustively unit tested. `useCalculator` handles the side effects:
@@ -168,8 +177,8 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 ## Assumptions
 
 - All numbers are IEEE-754 `float64`, so results such as `0.1 + 0.2` carry the usual floating-point error. The UI hides this through display rounding.
-- Each request is a single binary operation. There is no operator precedence and no multi-step expression.
-- The optional operations (power, square root, percentage) are deferred. See [docs/SPEC.md §7](docs/SPEC.md) for how they fit the current design.
+- Each request is a single operation. There is no operator precedence and no multi-step expression.
+- Percent is plain `a ÷ 100`; calculator-style percent (`200 + 10% = 220`) is not supported. See [docs/SPEC.md §7](docs/SPEC.md).
 
 ## AI Usage
 

@@ -15,6 +15,12 @@ export function keyToAction(key: string): InputAction | null {
       return { type: 'operator', operator: 'multiply' };
     case '/':
       return { type: 'operator', operator: 'divide' };
+    case '^':
+      return { type: 'operator', operator: 'power' };
+    case '@':
+      return { type: 'unary', operator: 'sqrt' };
+    case '%':
+      return { type: 'unary', operator: 'percent' };
     case 'Enter':
     case '=':
       return { type: 'equals' };

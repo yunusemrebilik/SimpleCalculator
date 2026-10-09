@@ -1,5 +1,5 @@
 import type { InputAction } from '../calculatorReducer';
-import { type Digit, type Operator, OPERATOR_SYMBOLS } from '../symbols';
+import { type Digit, type Operator, OPERATOR_SYMBOLS, UNARY_SYMBOLS, type UnaryOperator } from '../symbols';
 import styles from './Keypad.module.css';
 
 interface KeyDefinition {
@@ -8,6 +8,8 @@ interface KeyDefinition {
   action: InputAction;
   variant: 'digit' | 'operator' | 'function' | 'equals';
   wide?: boolean;
+  /** Starts a new grid row, leaving the rest of the previous row empty. */
+  newRow?: boolean;
 }
 
 const digitKey = (digit: Digit, wide = false): KeyDefinition => ({
@@ -17,15 +19,25 @@ const digitKey = (digit: Digit, wide = false): KeyDefinition => ({
   wide,
 });
 
-const operatorKey = (operator: Operator, ariaLabel: string): KeyDefinition => ({
-  label: OPERATOR_SYMBOLS[operator],
+const operatorKey = (operator: Operator, ariaLabel: string, label = OPERATOR_SYMBOLS[operator]): KeyDefinition => ({
+  label,
   ariaLabel,
   action: { type: 'operator', operator },
   variant: 'operator',
 });
 
+const unaryKey = (operator: UnaryOperator, ariaLabel: string): KeyDefinition => ({
+  label: UNARY_SYMBOLS[operator],
+  ariaLabel,
+  action: { type: 'unary', operator },
+  variant: 'operator',
+});
+
 const KEYS: readonly KeyDefinition[] = [
-  { label: 'AC', ariaLabel: 'All clear', action: { type: 'clear' }, variant: 'function' },
+  unaryKey('sqrt', 'Square root'),
+  operatorKey('power', 'Power', 'xʸ'),
+  unaryKey('percent', 'Percent'),
+  { label: 'AC', ariaLabel: 'All clear', action: { type: 'clear' }, variant: 'function', newRow: true },
   { label: '⌫', ariaLabel: 'Backspace', action: { type: 'backspace' }, variant: 'function' },
   { label: '±', ariaLabel: 'Toggle sign', action: { type: 'toggleSign' }, variant: 'function' },
   operatorKey('divide', 'Divide'),
@@ -58,7 +70,7 @@ export function Keypad({ onPress, disabled }: KeypadProps) {
         <button
           key={key.label}
           type="button"
-          className={`${styles.key} ${styles[key.variant]} ${key.wide ? styles.wide : ''}`}
+          className={`${styles.key} ${styles[key.variant]} ${key.wide ? styles.wide : ''} ${key.newRow ? styles.newRow : ''}`}
           aria-label={key.ariaLabel}
           disabled={disabled}
           onClick={() => onPress(key.action)}

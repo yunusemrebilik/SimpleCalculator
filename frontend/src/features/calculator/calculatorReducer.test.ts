@@ -7,17 +7,27 @@ import {
   initialState,
   MAX_DIGITS,
   MESSAGES,
+  toRequest,
 } from './calculatorReducer';
-import { isDigit, type Operator } from './symbols';
+import { isDigit, type Operator, type UnaryOperator } from './symbols';
 
-const OPERATOR_KEYS: Record<string, Operator> = { '+': 'add', '-': 'subtract', '*': 'multiply', '/': 'divide' };
+const OPERATOR_KEYS: Record<string, Operator> = {
+  '+': 'add',
+  '-': 'subtract',
+  '*': 'multiply',
+  '/': 'divide',
+  '^': 'power',
+};
+const UNARY_KEYS: Record<string, UnaryOperator> = { r: 'sqrt', '%': 'percent' };
 
-/** Builds actions from a compact key string, e.g. `"12+-3="`; `~` is ±, `<` is backspace, `C` is clear. */
+/** Builds actions from a compact key string, e.g. `"12+-3="`; `r` is √, `~` is ±, `<` is backspace, `C` is clear. */
 function keys(sequence: string): CalculatorAction[] {
   return [...sequence].map((key): CalculatorAction => {
     if (isDigit(key)) return { type: 'digit', digit: key };
     const operator = OPERATOR_KEYS[key];
     if (operator) return { type: 'operator', operator };
+    const unary = UNARY_KEYS[key];
+    if (unary) return { type: 'unary', operator: unary };
     switch (key) {
       case '.':
         return { type: 'decimal' };
@@ -126,8 +136,69 @@ describe('calculatorReducer', () => {
       expect(press('12/4=')).toMatchObject({ status: 'loading', error: null });
     });
 
-    it.each(['=', '5=', '5+=', '5+-=', '-='])('%s -> incomplete expression error', (sequence) => {
+    it.each(['=', '5=', '5+=', '5+-=', '-=', 'r='])('%s -> incomplete expression error', (sequence) => {
       expect(press(sequence)).toMatchObject({ status: 'idle', error: MESSAGES.incomplete });
+    });
+  });
+
+  describe('unary operations', () => {
+    it.each([
+      ['9r', '√9'],
+      ['-9r', '√-9'],
+      ['70%', '70%'],
+      ['0.%', '0.%'],
+    ])('%s -> "%s"', (sequence, expected) => {
+      expect(displayText(press(sequence))).toBe(expected);
+    });
+
+    it('waits for equals before sending', () => {
+      expect(press('9r')).toMatchObject({ unary: 'sqrt', status: 'idle' });
+      expect(press('9r=')).toMatchObject({ unary: 'sqrt', status: 'loading', error: null });
+    });
+
+    it('closes the number: digits, decimal point and sign are ignored', () => {
+      expect(press('9r5.~')).toEqual(press('9r'));
+      expect(press('70%1')).toEqual(press('70%'));
+    });
+
+    it.each<[string, Partial<CalculatorState>]>([
+      ['9r%', { unary: 'percent', operator: null }],
+      ['9r+', { unary: null, operator: 'add' }],
+      ['9r-', { unary: null, operator: 'subtract', left: '9' }],
+      ['9+r', { unary: 'sqrt', operator: null }],
+      ['9*%', { unary: 'percent', operator: null }],
+    ])('%s replaces the chosen operation', (sequence, expected) => {
+      expect(press(sequence)).toMatchObject({ ...expected, right: '', error: null });
+    });
+
+    it.each([
+      ['r', MESSAGES.enterNumber],
+      ['-r', MESSAGES.enterNumber],
+      ['5+-%', MESSAGES.enterNumber],
+      ['200+10%', MESSAGES.singleNumber],
+      ['200+10r', MESSAGES.singleNumber],
+    ])('%s -> error "%s" without changing the expression', (sequence, message) => {
+      const before = press(sequence.slice(0, -1));
+      const after = press(sequence);
+      expect(after.error).toBe(message);
+      expect(displayText(after)).toBe(displayText(before));
+    });
+
+    it('removes the unary operation first on backspace', () => {
+      const states = ['70%<', '70%<<', '9r<'].map((s) => displayText(press(s)));
+      expect(states).toEqual(['70', '7', '9']);
+    });
+
+    it('keeps the expression after failure so it can be corrected', () => {
+      const failed = calculatorReducer(press('-9r='), { type: 'calculationFailed', error: 'boom' });
+      expect(failed).toMatchObject({ status: 'idle', unary: 'sqrt', error: 'boom' });
+      expect(displayText(failed)).toBe('√-9');
+      expect(press('<~r=', failed)).toMatchObject({ left: '9', unary: 'sqrt', status: 'loading', error: null });
+    });
+
+    it('shows the result after success', () => {
+      expect(displayText(withResult('9r=', 3))).toBe('√9 = 3');
+      expect(displayText(withResult('70%=', 0.7))).toBe('70% = 0.7');
     });
   });
 
@@ -190,6 +261,8 @@ describe('calculatorReducer', () => {
       ['-', { left: '-6', operator: 'subtract', right: '', result: null }],
       ['~', { left: '6', operator: null, right: '', result: null }],
       ['<', { left: '-6', operator: null, right: '', result: null }],
+      ['r', { left: '-6', unary: 'sqrt', result: null, status: 'idle' }],
+      ['%', { left: '-6', unary: 'percent', result: null, status: 'idle' }],
     ])('%s', (sequence, expected) => {
       expect(press(sequence, result)).toMatchObject(expected);
     });
@@ -201,6 +274,22 @@ describe('calculatorReducer', () => {
     it('chains a new calculation from the result', () => {
       expect(displayText(press('*2', result))).toBe('-6 × 2');
     });
+
+    it('reuses a unary result as the left operand of a binary operation', () => {
+      expect(displayText(press('*200', withResult('10%=', 0.1)))).toBe('0.1 × 200');
+    });
+  });
+});
+
+describe('toRequest', () => {
+  it.each<[string, ReturnType<typeof toRequest>]>([
+    ['', null],
+    ['2^10', { operation: 'power', a: 2, b: 10 }],
+    ['-1.5*2', { operation: 'multiply', a: -1.5, b: 2 }],
+    ['9r', { operation: 'sqrt', a: 9 }],
+    ['70%', { operation: 'percent', a: 70 }],
+  ])('%j', (sequence, expected) => {
+    expect(toRequest(press(sequence))).toEqual(expected);
   });
 });
 
@@ -212,6 +301,7 @@ describe('displayText', () => {
     ['12--3', '12 − -3'],
     ['1.5*2', '1.5 × 2'],
     ['8/2', '8 ÷ 2'],
+    ['2^10', '2 ^ 10'],
   ])('%s -> "%s"', (sequence, expected) => {
     expect(displayText(press(sequence))).toBe(expected);
   });

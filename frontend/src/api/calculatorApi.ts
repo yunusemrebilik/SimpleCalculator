@@ -1,4 +1,9 @@
-export type Operation = 'add' | 'subtract' | 'multiply' | 'divide';
+export type BinaryOperation = 'add' | 'subtract' | 'multiply' | 'divide' | 'power';
+export type UnaryOperation = 'sqrt' | 'percent';
+
+export type CalculationRequest =
+  | { operation: BinaryOperation; a: number; b: number }
+  | { operation: UnaryOperation; a: number };
 
 export const UNAVAILABLE = 'UNAVAILABLE';
 
@@ -30,18 +35,14 @@ function isErrorBody(body: unknown): body is ErrorBody {
   return typeof error?.code === 'string' && typeof error.message === 'string';
 }
 
-export async function calculate(
-  operation: Operation,
-  a: number,
-  b: number,
-  signal?: AbortSignal,
-): Promise<number> {
+export async function calculate(request: CalculationRequest, signal?: AbortSignal): Promise<number> {
+  const { operation, ...operands } = request;
   let response: Response;
   try {
     response = await fetch(`/api/v1/${operation}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ a, b }),
+      body: JSON.stringify(operands),
       signal,
     });
   } catch (error) {

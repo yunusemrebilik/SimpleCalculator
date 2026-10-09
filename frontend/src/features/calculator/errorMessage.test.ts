@@ -5,6 +5,8 @@ import { toErrorMessage } from './errorMessage';
 describe('toErrorMessage', () => {
   it.each([
     [new ApiError('DIVISION_BY_ZERO', 'division by zero is not allowed'), 'Cannot divide by zero'],
+    [new ApiError('NEGATIVE_SQRT', 'square root of a negative number is not allowed'), 'Cannot take the square root of a negative number'],
+    [new ApiError('UNDEFINED_RESULT', 'result is undefined'), 'Result is undefined'],
     [new ApiError('RESULT_OUT_OF_RANGE', 'result is out of range'), 'Result out of range'],
     [new ApiError(UNAVAILABLE, 'whatever'), 'Service unavailable'],
     [new ApiError('INVALID_NUMBER', 'operand "a" is out of range'), 'operand "a" is out of range'],

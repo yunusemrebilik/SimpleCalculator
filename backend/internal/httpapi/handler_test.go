@@ -20,6 +20,9 @@ func TestOperationSuccess(t *testing.T) {
 		{op: "divide", body: `{"a": 12.5, "b": 4}`, want: 3.125},
 		{op: "multiply", body: `{"a": -5, "b": 0}`, want: 0},
 		{op: "add", body: `{"a": 1e2, "b": 0.5}`, want: 100.5},
+		{op: "power", body: `{"a": 2, "b": 10}`, want: 1024},
+		{op: "sqrt", body: `{"a": 9}`, want: 3},
+		{op: "percent", body: `{"a": 70}`, want: 0.7},
 	}
 
 	for _, tt := range tests {
@@ -47,6 +50,13 @@ func TestOperationErrors(t *testing.T) {
 	}{
 		{"division by zero", http.MethodPost, "/api/v1/divide", `{"a": 1, "b": 0}`, 422, "DIVISION_BY_ZERO"},
 		{"overflow", http.MethodPost, "/api/v1/multiply", `{"a": 1e308, "b": 10}`, 422, "RESULT_OUT_OF_RANGE"},
+		{"negative sqrt", http.MethodPost, "/api/v1/sqrt", `{"a": -4}`, 422, "NEGATIVE_SQRT"},
+		{"undefined power", http.MethodPost, "/api/v1/power", `{"a": 0, "b": -1}`, 422, "UNDEFINED_RESULT"},
+		{"unary with b", http.MethodPost, "/api/v1/sqrt", `{"a": 9, "b": 1}`, 400, "INVALID_JSON"},
+		{"unary missing a", http.MethodPost, "/api/v1/percent", `{}`, 400, "MISSING_OPERAND"},
+		{"unary string operand", http.MethodPost, "/api/v1/sqrt", `{"a": "9"}`, 400, "INVALID_JSON"},
+		{"unary malformed json", http.MethodPost, "/api/v1/sqrt", `{"a": `, 400, "INVALID_JSON"},
+		{"wrong method on unary", http.MethodGet, "/api/v1/sqrt", ``, 405, "METHOD_NOT_ALLOWED"},
 		{"missing a", http.MethodPost, "/api/v1/add", `{"b": 1}`, 400, "MISSING_OPERAND"},
 		{"missing b", http.MethodPost, "/api/v1/add", `{"a": 1}`, 400, "MISSING_OPERAND"},
 		{"null operand", http.MethodPost, "/api/v1/add", `{"a": null, "b": 1}`, 400, "MISSING_OPERAND"},
