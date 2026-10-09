@@ -185,6 +185,200 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 
 ## AI Usage
 
-This project was built with GitHub Copilot (agent mode) in VS Code. The prompts used are listed below.
+This project was built with GitHub Copilot (agent mode) in VS Code and ChatGPT Codex. The prompts used are listed below.
 
-<!-- TODO: paste prompts -->
+```
+Hi, I've given a take-home test and want to build it together
+
+Details are given below:
+--begin--
+As a next step, please complete the following within the next 5 business days.
+
+**Objective**
+Build a full-stack calculator application with a **React frontend** and a backend microservice. The frontend should consume the backend API to perform basic and advanced arithmetic operations. Focus on clean design, maintainable code, and testable architecture.**Requirements**
+**Functional**
+**Operations:**
+
+- Addition, Subtraction, Multiplication, Division
+- Optional: Exponentiation, Square Root, Percentage
+**Frontend (React):**
+
+- Intuitive UI for entering input and displaying results
+- Input validation and error handling
+- Responsive design (basic mobile support)
+**Backend (REST API):**
+
+- Expose endpoints for calculator operations
+- Validate input and handle edge cases (division by zero, invalid data)
+- Return results in JSON format
+**Non-Functional**
+
+- Clean, readable, and idiomatic code (frontend and backend)
+- Unit tests covering key functionality for both layers
+- Documentation: setup instructions, API usage, and design rationale
+- Optional: Dockerfile for full-stack deployment
+**Constraints**
+
+- Frontend: React (TypeScript preferred)
+- Backend: Go is perferred
+**Deliverables**
+
+1. Git repository with frontend and backend code
+2. README with setup instructions, API examples, and design decisions
+3. Unit tests and coverage report
+4. Optional: Dockerfile to run frontend + backend together
+**Instructions**
+
+1. Use any AI tooling you would like
+2. Spend ~**2–4 hours** on this assignment. Prioritize correctness, clarity, and maintainability over extra features.
+3. Push your solution to **GitHub, GitLab, or another Git repository**.
+4. Share the repository link with us for evaluation.
+5. Share any prompts that you used in your work
+6. Make sure your README includes:
+- Setup instructions
+- How to run the frontend and backend
+- Examples of API calls (if using REST)
+- Design decisions or assumptions
+--end--
+
+My initial idea is to create a react ui with typescript (clean folder and component structure) and a go backend preferably without external deps
+We can use float64 as numeric value
+As said in the reqs we will handle errors or invalid values
+My idea is frontend should not calculate anything, it can check for invalid chars without much "knowledge"
+Backend should calculate and return the response
+To me this seems like a simple calc without an arbitrary text entry (so we don't need something like shunting-yard or Pratt)
+Also as far as I know they expect us to have a multiple endpoints, each operation can have their own endpoints
+We'll first start with the mandatory operations and defer the optional ones for now
+
+You should ask me for clarification but you should already know to write idiomatic ts or go, don't ask for them. If I see something suboptimal in your output I can still correct it
+
+Start with a simple specification, for this project we don't need anything huge
+
+I'll review it and tell you what to do next
+```
+
+```
+I've read the spec and it's very good but I have a few things to say, let me first answer the open questions:
+
+Frontend should round it. 5 digits at most after '.' is enough, if it is 3.50000 we should simply show 3.5
+Yes we should allow that
+422 (the spec examples are good)
+My idea for calculation is simpler
+User whether types or clicks buttons to enter an expression and we display it in the text field, it is editable until they send a request (via enter or '=' button)
+Then we ignore / block inputs, after backend returns a response we either show the result or error (error should have its own place, it should not override the previous input, we should allow the user to correct their bad input)
+If it is a valid result we should show it as {expression} = {result}
+If the user enter a number we override the whole result
+If the user enters an operation we take the result as the left operand
+
+If anything is still unclear let me know
+```
+
+```
+We should say "calculate the current operation first" (otherwise it also feels like in correct in terms operator precedence perspective, but once it is already computed, nothing is wrong with that)
+```
+
+```
+Yes the current spec is good and you can actually implement the app
+```
+
+```
+I have a take-home task and I kind of completed it (at least the mandatory part)
+I want you to test it and tell me whether anything needs a fix, improvement, etc.
+Let me share the whole email so you know what they are asking for
+As a next step, please complete the following within the next 5 business days.
+ObjectiveBuild a full-stack calculator application with a React frontend and a backend microservice. The frontend should consume the backend API to perform basic and advanced arithmetic operations. Focus on clean design, maintainable code, and testable architecture.RequirementsFunctionalOperations:
+- Addition, Subtraction, Multiplication, Division
+- Optional: Exponentiation, Square Root, Percentage
+Frontend (React):
+- Intuitive UI for entering input and displaying results
+- Input validation and error handling
+- Responsive design (basic mobile support)
+Backend (REST API):
+- Expose endpoints for calculator operations
+- Validate input and handle edge cases (division by zero, invalid data)
+- Return results in JSON format
+Non-Functional
+- Clean, readable, and idiomatic code (frontend and backend)
+- Unit tests covering key functionality for both layers
+- Documentation: setup instructions, API usage, and design rationale
+- Optional: Dockerfile for full-stack deployment
+Constraints
+- Frontend: React (TypeScript preferred)
+- Backend: Go is perferred
+Deliverables
+1. Git repository with frontend and backend code
+2. README with setup instructions, API examples, and design decisions
+3. Unit tests and coverage report
+4. Optional: Dockerfile to run frontend + backend together
+Instructions
+1. Use any AI tooling you would like
+2. Spend ~2–4 hours on this assignment. Prioritize correctness, clarity, and maintainability over extra features.
+3. Push your solution to GitHub, GitLab, or another Git repository.
+4. Share the repository link with us for evaluation.
+5. Share any prompts that you used in your work
+6. Make sure your README includes:
+   - Setup instructions
+   - How to run the frontend and backend
+   - Examples of API calls (if using REST)
+   - Design decisions or assumptions
+
+Please submit here:  [redacted]
+```
+
+```
+Apply the approved / agreed fixes and then tell me about the design choice
+Also leave an open web page so I can test it myself directly in the browser
+```
+
+```
+Could you tell me how you would implement phase II? Percentage can be (200 + 10% = 220).
+I think it's better to support sqrt and % directly instead of gluing the current arch but I'd like to know what you think
+```
+
+```
+What if we keep things simple and treat 70% as 0.7 and not more?
+It also becomes a unary op right?
+I'm curious what is your plan to handle unary ops?
+```
+
+```
+I personally do not like this type of implicit calculations because I may want to type sqrt(100) but in your proposal it would run instantly and did not wait for me to enter the whole number
+I'm still in favor of explicit calculations with equals or enter key
+Also I feel like we can simply do not allow chaining percent or sqrt with other operations
+You can calculate the percentage and then pressing an operand already uses the existing result
+So example:
+10% = 0.1 * 200 = 20 (0.1 became left operand, it must have already been implemented)
+What do you think?
+Once we agree I'll let you update the spec and implement
+```
+
+```
+Yes '=' and Enter send the request, no unintended request sending
+Yep we will ship power too, since it is almost identical to earlier operations I did not concentrate on it that much. It is just an extension (you should add the error though)
+Yep a new row with shortcuts are approved
+Update the spec and start implementing
+```
+
+```
+I've used Claude to implement the feature
+I want you to review the working tree thoroughly and tell me whether it is working as expected, needs a fix/improvement, has a bug, etc.
+```
+
+```
+Commit the current state first and then apply the approved fixes
+Test the app the let me know when you are done
+```
+
+```
+I want you to lighten the background of the operator buttons a bit to match a roughly 4:1 contrast
+Right now they are unnecessarily dark, they look like tangerine rather than orange
+Also change the first row (sqrt, pow, %) with AC - Backspace - Unary Toggle
+I feel like they would make the calculator more coherent
+```
+
+```
+I feel like orange buttons are lightened less compared to other buttons on hover
+Is this true? If it is I want you to match them to the rest, if it is not skip it
+Then commit the current state, meanwhile I'll collect the prompts I've used
+Also make sure everything is ready to send (e.g., builds and docker files etc.,) apart from prompts
+```
