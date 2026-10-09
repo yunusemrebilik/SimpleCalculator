@@ -1,0 +1,57 @@
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+}
+
+.key {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: clamp(1.2rem, 5vw, 1.5rem);
+  color: inherit;
+  cursor: pointer;
+  transition:
+    filter 0.1s,
+    transform 0.05s;
+}
+
+.key:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+
+.key:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.key:focus-visible {
+  outline: 2px solid #8ab4ff;
+  outline-offset: 2px;
+}
+
+.key:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.digit {
+  background: #2a2f3a;
+}
+
+.function {
+  background: #4a5160;
+}
+
+.operator {
+  background: #d9822b;
+}
+
+.equals {
+  background: #3b82f6;
+}
+
+.wide {
+  grid-column: span 2;
+  aspect-ratio: auto;
+}
