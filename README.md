@@ -55,6 +55,8 @@ STATIC_DIR=../frontend/dist go run ./cmd/server   # PowerShell: $env:STATIC_DIR=
 
 ## Docker
 
+Make sure Docker Desktop or Docker Engine is running before building.
+
 ```sh
 docker build -t simple-calculator .
 docker run --rm -p 8080:8080 simple-calculator
@@ -68,7 +70,8 @@ Open <http://localhost:8080>.
 # backend
 cd backend
 go test ./... -cover
-go test ./... -coverprofile=coverage.out && go tool cover -html=coverage.out
+go test ./... '-coverprofile=coverage'
+go tool cover '-html=coverage'
 
 # frontend
 cd frontend
@@ -76,13 +79,13 @@ npm test
 npm run coverage          # text summary + HTML report in frontend/coverage/
 ```
 
-Current coverage:
+Current coverage (full [coverage report](docs/COVERAGE.md), including the committed [Go coverage profile](backend/coverage)):
 
 | Package / area              | Coverage              |
 |-----------------------------|-----------------------|
 | `backend/internal/calc`     | 100% statements       |
 | `backend/internal/httpapi`  | 95.6% statements      |
-| `frontend/src` (all files)  | 99.35% statements, 98.41% branches, 100% lines |
+| `frontend/src` (all files)  | 98.46% statements, 97.68% branches, 100% lines |
 
 `cmd/server` contains only wiring and is covered by manual and end-to-end runs rather than unit tests.
 
@@ -138,8 +141,8 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 
 - **Input:** use the keypad, or the keyboard: `0-9`, `.`, `+`, `-`, `*`, `/`, `^` (power), `@` (square root), `%` (percent), `Enter` or `=`, `Backspace`, and `Escape` to clear. When a keypad button has focus, `Enter` or Space activates that button; `=` always submits the expression.
 - **Negative numbers:** `-` on an empty number makes it negative (`12 − -3`). `±` toggles the sign.
-- **Square root and percent:** type the number, then `√` or `%`, then `=`: `9 √ =` shows `√9 = 3`, and `70 % =` shows `70% = 0.7`. Percent is always `a ÷ 100`.
-- **One operation per request:** pressing another operator once both numbers are entered shows "Calculate the current operation first". `√` and `%` can't be combined with a binary operation (`200 + 10%` is rejected); use the result instead: `10 % =`, then `× 200 =`.
+- **Square root and percent:** select `√` before or after entering the number, then press `=`: both `√ 100 =` and `100 √ =` show `√(100) = 10`. For percent, enter a number, then `%`, then `=`; `70 % =` shows `70% = 0.7`. Percent is always `a ÷ 100`. Digits, decimal point, and `±` keep editing a pending unary operand. Backspace removes the unary operation first, leaving the operand available for editing.
+- **One operation per request:** selecting another operation replaces the pending operation while there is only one operand, without calculating it (`10 % × 200 =` is `10 × 200 = 2000`). Pressing another operator once both numbers are entered shows "Calculate the current operation first". `√` and `%` can't be combined with a binary operation (`200 + 10%` is rejected); use the result instead: `10 % =`, then `× 200 =`.
 - **Results:** a result is shown as `12 ÷ 4 = 3`. Typing a digit starts over, and pressing an operation key continues from the result.
 - **Errors:** errors appear below the display without clearing it, so the input can be fixed and resent.
 
@@ -156,14 +159,14 @@ $ curl -s -X POST localhost:8080/api/v1/add -H 'Content-Type: application/json' 
 
 **Frontend**
 
-- **Structured input instead of free text.** The state holds separate `left`, `operator`, `right` and `unary` values rather than an expression string. Since the API takes `a op b` or `op a`, the UI builds that shape directly, so there's no parsing, tokenizing or spacing rule. A unary minus is just a `-` prefix on one value.
+- **Structured input instead of free text.** The expression is a discriminated union: binary expressions have `left`, `operator`, and `right`; unary expressions have an `operator` and one `operand`. TypeScript narrows the fields by `kind`, so unary and binary operators cannot coexist in the same expression. Since the API takes `a op b` or `op a`, the UI builds that shape directly, so there's no parsing, tokenizing or spacing rule. A unary minus is just a `-` prefix on one value.
 - **The frontend never computes.** It only edits operand strings and calls the API. It does round results for display only: at most 12 significant digits, trailing zeros dropped, never `-0`.
 - **Full-precision chaining.** The raw API result is stored separately from its display formatting. For example, `1 ÷ 3 = 0.333333333333`, then `× 3` gives `1`. Reusing or editing a result exposes its full-precision decimal operand; formatting never changes the value sent to the API. Small nonzero values remain visible, e.g. `1 ÷ 1000000 = 0.000001`.
 - **Pure reducer plus a thin hook.** All input rules live in `calculatorReducer.ts`, which is a pure function and is exhaustively unit tested. `useCalculator` handles the side effects:
   - It sends the request whenever the state enters `loading`, aborts it on cleanup, and enforces a 10-second timeout. A timeout preserves the expression, shows a retry message, and re-enables the keypad. Late responses are ignored.
   - It runs the keyboard listener.
-- **Explicit errors, never silent changes to the user's expression.** These cases show a message:
-  - pressing an operator before entering a number
+- **Input errors preserve the expression.** Operation replacement is intentional when only one operand is present. These invalid inputs show a message:
+  - pressing a binary operator (except unary minus) or `%` before entering a number; `√` can be selected first
   - pressing an operator when the expression already has both numbers
   - pressing `=` on an incomplete expression
 

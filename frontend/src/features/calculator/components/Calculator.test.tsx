@@ -39,7 +39,7 @@ describe('Calculator', () => {
   it('activates focused buttons with Enter and Space, while equals remains a shortcut', async () => {
     respondWith(200, { result: 14 });
     const { user, display } = setup();
-    for (let i = 0; i < 8; i++) await user.tab(); // √ xʸ % AC ⌫ ± ÷ 7
+    for (let i = 0; i < 8; i++) await user.tab(); // AC ± ⌫ √ xʸ % ÷ 7
     expect(screen.getByRole('button', { name: '7' })).toHaveFocus();
     await user.keyboard('{Enter}');
     expect(display).toHaveTextContent(/^7$/);
@@ -132,12 +132,59 @@ describe('Calculator', () => {
     const { display, click } = setup();
 
     await click('9', 'Square root');
-    expect(display).toHaveTextContent('√9');
+    expect(display).toHaveTextContent('√(9)');
     expect(fetchMock).not.toHaveBeenCalled();
 
     await click('Equals');
-    expect(await screen.findByText('√9 = 3')).toBe(display);
+    expect(await screen.findByText('√(9) = 3')).toBe(display);
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/sqrt', expect.objectContaining({ body: JSON.stringify({ a: 9 }) }));
+  });
+
+  it.each([
+    ['Square root', '1', '0', '0'],
+    ['1', 'Square root', '0', '0'],
+  ])('allows editable square-root entry: %j', async (...buttons) => {
+    respondWith(200, { result: 10 });
+    const { display, click } = setup();
+    await click(...buttons);
+    expect(display).toHaveTextContent('√(100)');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await click('Equals');
+    await screen.findByText('√(100) = 10');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/sqrt', expect.objectContaining({ body: '{"a":100}' }));
+  });
+
+  it('rejects an empty square root and lets the user finish it', async () => {
+    respondWith(200, { result: 0.5 });
+    const { user } = setup();
+    await user.keyboard('@{Enter}');
+    expect(screen.getByRole('alert')).toHaveTextContent('Incomplete expression');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.keyboard('.25{Enter}');
+    await screen.findByText('√(0.25) = 0.5');
+  });
+
+  it('edits a percentage operand before evaluating', async () => {
+    respondWith(200, { result: -1.005 });
+    const { user, click } = setup();
+    await user.keyboard('10%0.5');
+    await click('Toggle sign');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.keyboard('=');
+    await screen.findByText('-100.5% = -1.005');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/percent', expect.objectContaining({ body: '{"a":-100.5}' }));
+  });
+
+  it('replaces a pending percentage with multiplication without calculating it', async () => {
+    respondWith(200, { result: 2000 });
+    const { user } = setup();
+    await user.keyboard('10%*200');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.keyboard('{Enter}');
+    await screen.findByText('10 × 200 = 2000');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/multiply', expect.objectContaining({ body: '{"a":10,"b":200}' }));
   });
 
   it('reuses a percent result in the next operation', async () => {
@@ -167,12 +214,18 @@ describe('Calculator', () => {
 
   it('shows the negative square root error and keeps the input', async () => {
     respondWith(422, { error: { code: 'NEGATIVE_SQRT', message: 'square root of a negative number is not allowed' } });
-    const { user, display } = setup();
+    respondWith(200, { result: 3 });
+    const { user, display, click } = setup();
 
     await user.keyboard('-9@{Enter}');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Cannot take the square root of a negative number');
-    expect(display).toHaveTextContent('√-9');
+    expect(display).toHaveTextContent('√(-9)');
+    await click('Toggle sign');
+    expect(display).toHaveTextContent('√(9)');
+    expect(screen.getByRole('alert')).toBeEmptyDOMElement();
+    await click('Equals');
+    await screen.findByText('√(9) = 3');
   });
 
   it('does not mix percent with a binary operation', async () => {

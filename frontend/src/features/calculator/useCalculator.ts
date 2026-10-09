@@ -15,11 +15,11 @@ export interface Calculator {
 
 export function useCalculator(): Calculator {
   const [state, dispatch] = useReducer(calculatorReducer, initialState);
-  const { status, left, operator, right, unary } = state;
+  const { status, expression } = state;
 
   useEffect(() => {
     if (status !== 'loading') return;
-    const request = toRequest({ left, operator, right, unary });
+    const request = toRequest(expression);
     if (request === null) return;
 
     const controller = new AbortController();
@@ -40,7 +40,7 @@ export function useCalculator(): Calculator {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [status, left, operator, right, unary]);
+  }, [status, expression]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {

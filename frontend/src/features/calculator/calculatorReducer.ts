@@ -2,12 +2,12 @@ import type { CalculationRequest } from '../../api/calculatorApi';
 import { type Digit, type Operator, OPERATOR_SYMBOLS, UNARY_SYMBOLS, type UnaryOperator } from './symbols';
 import { formatResult, resultToOperand } from './formatResult';
 
+export type Expression =
+  | { kind: 'binary'; left: string; operator: Operator | null; right: string }
+  | { kind: 'unary'; operator: UnaryOperator; operand: string };
+
 export interface CalculatorState {
-  left: string;
-  operator: Operator | null;
-  right: string;
-  /** When set, `operator` is null and `right` is empty. */
-  unary: UnaryOperator | null;
+  expression: Expression;
   /** Raw API result; formatting must not change the value used for chaining. */
   result: number | null;
   status: 'idle' | 'loading';
@@ -38,11 +38,12 @@ export const MESSAGES = {
   incomplete: 'Incomplete expression',
 } as const;
 
+function binaryExpression(left = '', operator: Operator | null = null, right = ''): Expression {
+  return { kind: 'binary', left, operator, right };
+}
+
 export const initialState: CalculatorState = {
-  left: '',
-  operator: null,
-  right: '',
-  unary: null,
+  expression: binaryExpression(),
   result: null,
   status: 'idle',
   error: null,
@@ -61,52 +62,53 @@ export function calculatorReducer(state: CalculatorState, action: CalculatorActi
 }
 
 export function displayText(state: CalculatorState): string {
-  const expression = expressionText(state);
+  const expression = expressionText(state.expression);
   return state.result === null ? expression : `${expression} = ${formatResult(state.result)}`;
 }
 
-function expressionText({ left, operator, right, unary }: CalculatorState): string {
-  if (unary === 'sqrt') return `${UNARY_SYMBOLS.sqrt}${left}`;
-  if (unary === 'percent') return `${left}${UNARY_SYMBOLS.percent}`;
+function expressionText(expression: Expression): string {
+  if (expression.kind === 'unary') {
+    return expression.operator === 'sqrt'
+      ? `${UNARY_SYMBOLS.sqrt}(${expression.operand})`
+      : `${expression.operand}${UNARY_SYMBOLS.percent}`;
+  }
+  const { left, operator, right } = expression;
   return [left, operator && OPERATOR_SYMBOLS[operator], right].filter(Boolean).join(' ');
 }
 
-export function canSubmit({ left, operator, right, unary }: CalculatorState): boolean {
-  return isComplete(left) && (unary !== null || (operator !== null && isComplete(right)));
+/** Incomplete expressions cannot become API requests (in particular, empty input is not zero). */
+export function toRequest(expression: Expression): CalculationRequest | null {
+  if (expression.kind === 'unary') {
+    return isComplete(expression.operand) ? { operation: expression.operator, a: Number(expression.operand) } : null;
+  }
+  const { left, operator, right } = expression;
+  return isComplete(left) && operator !== null && isComplete(right)
+    ? { operation: operator, a: Number(left), b: Number(right) }
+    : null;
 }
 
-export function toRequest({
-  left,
-  operator,
-  right,
-  unary,
-}: Pick<CalculatorState, 'left' | 'operator' | 'right' | 'unary'>): CalculationRequest | null {
-  if (unary !== null) return { operation: unary, a: Number(left) };
-  if (operator !== null) return { operation: operator, a: Number(left), b: Number(right) };
-  return null;
+function activeOperand(expression: Expression): string {
+  if (expression.kind === 'unary') return expression.operand;
+  return expression.operator === null ? expression.left : expression.right;
 }
-
-type Slot = 'left' | 'right';
 
 function applyInput(state: CalculatorState, action: InputAction): CalculatorState {
-  const slot: Slot = state.operator === null ? 'left' : 'right';
-  const value = state[slot];
-  // √ and % close the number they apply to.
-  const editable = state.unary === null;
-
+  const value = activeOperand(state.expression);
   switch (action.type) {
     case 'digit':
-      return editable ? updateSlot(state, slot, appendDigit(value, action.digit)) : state;
+      return updateOperand(state, appendDigit(value, action.digit));
     case 'decimal':
-      return editable ? updateSlot(state, slot, appendDecimal(value)) : state;
+      return updateOperand(state, appendDecimal(value));
     case 'toggleSign':
-      return editable ? updateSlot(state, slot, toggleSign(value)) : state;
+      return updateOperand(state, toggleSign(value));
     case 'operator':
-      return applyOperator(state, action.operator, slot, value);
+      return applyOperator(state, action.operator);
     case 'unary':
       return applyUnary(state, action.operator);
     case 'equals':
-      return canSubmit(state) ? { ...state, status: 'loading', error: null } : reject(state, MESSAGES.incomplete);
+      return toRequest(state.expression) !== null
+        ? { ...state, status: 'loading', error: null }
+        : reject(state, MESSAGES.incomplete);
     case 'backspace':
       return backspace(state);
     case 'clear':
@@ -114,48 +116,57 @@ function applyInput(state: CalculatorState, action: InputAction): CalculatorStat
   }
 }
 
-function applyOperator(state: CalculatorState, operator: Operator, slot: Slot, value: string): CalculatorState {
+function applyOperator(state: CalculatorState, operator: Operator): CalculatorState {
+  const expression = state.expression;
+  const value = activeOperand(expression);
   if (operator === 'subtract') {
-    if (value === '') return updateSlot(state, slot, '-');
+    if (value === '') return updateOperand(state, '-');
     if (value === '-') return state;
   }
-  if (!isComplete(state.left) || state.right === '-') return reject(state, MESSAGES.enterNumber);
-  if (state.right !== '') return reject(state, MESSAGES.calculateFirst);
-  return accept(state, { operator, unary: null });
+  const left = expression.kind === 'unary' ? expression.operand : expression.left;
+  if (!isComplete(left) || (expression.kind === 'binary' && expression.right === '-')) {
+    return reject(state, MESSAGES.enterNumber);
+  }
+  if (expression.kind === 'binary' && expression.right !== '') return reject(state, MESSAGES.calculateFirst);
+  return accept(state, binaryExpression(left, operator));
 }
 
-function applyUnary(state: CalculatorState, unary: UnaryOperator): CalculatorState {
-  if (!isComplete(state.left) || state.right === '-') return reject(state, MESSAGES.enterNumber);
-  if (state.right !== '') return reject(state, MESSAGES.singleNumber);
-  return accept(state, { operator: null, unary });
+function applyUnary(state: CalculatorState, operator: UnaryOperator): CalculatorState {
+  const expression = state.expression;
+  if (expression.kind === 'binary') {
+    if (expression.right === '-') return reject(state, MESSAGES.enterNumber);
+    if (expression.right !== '') return reject(state, MESSAGES.singleNumber);
+  }
+  const operand = expression.kind === 'unary' ? expression.operand : expression.left;
+  // Square root can be selected first; percentage retains its number-then-% entry order.
+  if (operator === 'percent' && !isComplete(operand)) return reject(state, MESSAGES.enterNumber);
+  return accept(state, { kind: 'unary', operator, operand });
 }
 
 function applyInputToResult(state: CalculatorState, result: string, action: InputAction): CalculatorState {
+  const continued = { ...initialState, expression: binaryExpression(result) };
   switch (action.type) {
     case 'digit':
-      return { ...initialState, left: action.digit };
     case 'decimal':
-      return { ...initialState, left: '0.' };
-    case 'toggleSign':
-      return { ...initialState, left: toggleSign(result) };
-    case 'operator':
-      return { ...initialState, left: result, operator: action.operator };
-    case 'unary':
-      return { ...initialState, left: result, unary: action.operator };
-    case 'backspace':
-      return { ...initialState, left: result };
     case 'clear':
-      return initialState;
+      return applyInput(initialState, action);
+    case 'toggleSign':
+    case 'operator':
+    case 'unary':
+      return applyInput(continued, action);
+    case 'backspace':
+      return continued;
     case 'equals':
       return state;
   }
 }
 
 function backspace(state: CalculatorState): CalculatorState {
-  if (state.unary !== null) return accept(state, { unary: null });
-  if (state.right !== '') return accept(state, { right: state.right.slice(0, -1) });
-  if (state.operator !== null) return accept(state, { operator: null });
-  if (state.left !== '') return accept(state, { left: state.left.slice(0, -1) });
+  const expression = state.expression;
+  if (expression.kind === 'unary') return accept(state, binaryExpression(expression.operand));
+  if (expression.right !== '') return accept(state, { ...expression, right: expression.right.slice(0, -1) });
+  if (expression.operator !== null) return accept(state, { ...expression, operator: null });
+  if (expression.left !== '') return accept(state, { ...expression, left: expression.left.slice(0, -1) });
   return state;
 }
 
@@ -181,13 +192,15 @@ function isComplete(value: string): boolean {
 }
 
 /** `null` means the key does not apply, so the state (including any error) is left untouched. */
-function updateSlot(state: CalculatorState, slot: Slot, value: string | null): CalculatorState {
+function updateOperand(state: CalculatorState, value: string | null): CalculatorState {
   if (value === null) return state;
-  return accept(state, slot === 'left' ? { left: value } : { right: value });
+  const expression = state.expression;
+  if (expression.kind === 'unary') return accept(state, { ...expression, operand: value });
+  return accept(state, expression.operator === null ? { ...expression, left: value } : { ...expression, right: value });
 }
 
-function accept(state: CalculatorState, changes: Partial<CalculatorState>): CalculatorState {
-  return { ...state, ...changes, error: null };
+function accept(state: CalculatorState, expression: Expression): CalculatorState {
+  return { ...state, expression, error: null };
 }
 
 function reject(state: CalculatorState, error: string): CalculatorState {

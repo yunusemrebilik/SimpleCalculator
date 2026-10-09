@@ -16,35 +16,41 @@ describe('request lifetime', () => {
     fetchMock.mockReset();
   });
 
-  function setup() {
+  function setup(kind: 'binary' | 'unary' = 'binary') {
     const hook = renderHook(useCalculator);
     act(() => {
-      hook.result.current.press({ type: 'digit', digit: '1' });
-      hook.result.current.press({ type: 'operator', operator: 'add' });
-      hook.result.current.press({ type: 'digit', digit: '2' });
+      if (kind === 'unary') {
+        hook.result.current.press({ type: 'unary', operator: 'sqrt' });
+        hook.result.current.press({ type: 'digit', digit: '9' });
+      } else {
+        hook.result.current.press({ type: 'digit', digit: '1' });
+        hook.result.current.press({ type: 'operator', operator: 'add' });
+        hook.result.current.press({ type: 'digit', digit: '2' });
+      }
       hook.result.current.press({ type: 'equals' });
     });
     return hook;
   }
 
-  it('times out, preserves input, allows retry, and ignores the late response', async () => {
+  it.each(['binary', 'unary'] as const)('times out, preserves input, allows retry, and ignores late responses (%s)', async (kind) => {
     let resolveLate!: (response: Response) => void;
     fetchMock.mockReturnValueOnce(new Promise((resolve) => { resolveLate = resolve; }));
-    const { result } = setup();
+    const { result } = setup(kind);
+    const expression = kind === 'unary' ? '√(9)' : '1 + 2';
     const signal = fetchMock.mock.calls[0]?.[1]?.signal;
     expect(result.current.isLoading).toBe(true);
 
     await act(async () => { await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS); });
     expect(signal?.aborted).toBe(true);
     expect(result.current).toMatchObject({
-      isLoading: false, display: '1 + 2', error: 'Request timed out. Please try again.',
+      isLoading: false, display: expression, error: 'Request timed out. Please try again.',
     });
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ result: 3 })));
     await act(async () => { result.current.press({ type: 'equals' }); });
-    expect(result.current).toMatchObject({ display: '1 + 2 = 3', error: null, isLoading: false });
+    expect(result.current).toMatchObject({ display: `${expression} = 3`, error: null, isLoading: false });
     await act(async () => { resolveLate(new Response(JSON.stringify({ result: 999 }))); });
-    expect(result.current.display).toBe('1 + 2 = 3');
+    expect(result.current.display).toBe(`${expression} = 3`);
     expect(vi.getTimerCount()).toBe(0);
   });
 

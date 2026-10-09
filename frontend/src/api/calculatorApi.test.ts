@@ -69,6 +69,12 @@ describe('calculate', () => {
     await expect(calculate({ operation: 'add', a: 1, b: 2 })).rejects.toMatchObject({ code: UNAVAILABLE });
   });
 
+  it.each(['1e400', '-1e400'])('rejects an overflowing result (%s)', async (result) => {
+    mockFetch(() => Promise.resolve(new Response(`{"result":${result}}`, { status: 200 })));
+
+    await expect(calculate({ operation: 'add', a: 1, b: 2 })).rejects.toMatchObject({ code: UNAVAILABLE });
+  });
+
   it('rethrows the abort error when the request is aborted', async () => {
     const controller = new AbortController();
     const abortError = new DOMException('Aborted', 'AbortError');

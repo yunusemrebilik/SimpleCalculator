@@ -26,7 +26,9 @@ interface ErrorBody {
 }
 
 function isResultBody(body: unknown): body is ResultBody {
-  return typeof body === 'object' && body !== null && typeof (body as ResultBody).result === 'number';
+  if (typeof body !== 'object' || body === null) return false;
+  const { result } = body as Partial<ResultBody>;
+  return typeof result === 'number' && Number.isFinite(result);
 }
 
 function isErrorBody(body: unknown): body is ErrorBody {

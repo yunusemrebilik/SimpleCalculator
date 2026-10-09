@@ -34,12 +34,12 @@ const unaryKey = (operator: UnaryOperator, ariaLabel: string): KeyDefinition => 
 });
 
 const KEYS: readonly KeyDefinition[] = [
-  unaryKey('sqrt', 'Square root'),
+  { label: 'AC', ariaLabel: 'All clear', action: { type: 'clear' }, variant: 'function' },
+  { label: '±', ariaLabel: 'Toggle sign', action: { type: 'toggleSign' }, variant: 'function' },
+  { label: '⌫', ariaLabel: 'Backspace', action: { type: 'backspace' }, variant: 'function', wide: true },
+  { ...unaryKey('sqrt', 'Square root'), newRow: true },
   operatorKey('power', 'Power', 'xʸ'),
   unaryKey('percent', 'Percent'),
-  { label: 'AC', ariaLabel: 'All clear', action: { type: 'clear' }, variant: 'function', newRow: true },
-  { label: '⌫', ariaLabel: 'Backspace', action: { type: 'backspace' }, variant: 'function' },
-  { label: '±', ariaLabel: 'Toggle sign', action: { type: 'toggleSign' }, variant: 'function' },
   operatorKey('divide', 'Divide'),
   digitKey('7'),
   digitKey('8'),

@@ -4,7 +4,7 @@
 
 A full-stack calculator:
 
-- **Frontend**: React + TypeScript keypad calculator. Input is stored as structured slots (`left`, `operator`, `right`, `unary`), so nothing is ever parsed. It **never computes**. It calls the matching endpoint and formats the result for display.
+- **Frontend**: React + TypeScript keypad calculator. Input is stored as a typed unary or binary expression, so no expression string is parsed. It **never computes**. It calls the matching endpoint and formats the result for display.
 - **Backend**: Go REST API with **no external dependencies**. It does all the arithmetic on `float64`.
 
 Phase 1: add, subtract, multiply, divide.
@@ -107,8 +107,8 @@ Stack: Vite, React, TypeScript (strict), Vitest, React Testing Library. No UI li
 │          12 × -3.5    │  ← display: rendered from state (shows `expr = result` after a successful request)
 │  Cannot divide by 0   │  ← error area (separate; never overwrites the display)
 ├─────┬─────┬─────┬─────┤
-│  √  │ xʸ  │  %  │     │
-│ AC  │  ⌫  │  ±  │  ÷  │
+│ AC  │  ±  │     ⌫     │
+│  √  │ xʸ  │  %  │  ÷  │
 │  7  │  8  │  9  │  ×  │
 │  4  │  5  │  6  │  −  │
 │  1  │  2  │  3  │  +  │
@@ -128,56 +128,67 @@ State is managed by a pure reducer (`useReducer`), and the API call runs in a cu
 type Operator = 'add' | 'subtract' | 'multiply' | 'divide' | 'power';
 type UnaryOperator = 'sqrt' | 'percent';
 
+type Expression =
+  | { kind: 'binary'; left: string; operator: Operator | null; right: string }
+  | { kind: 'unary'; operator: UnaryOperator; operand: string };
+
 interface CalculatorState {
-  left: string;              // '', '-', '12', '-3.5', '0.'
-  operator: Operator | null;
-  right: string;
-  unary: UnaryOperator | null; // if set: operator === null and right === ''
-  result: number | null;     // raw API value; non-null means "result mode"
+  expression: Expression;
+  result: number | null; // raw API value; non-null means "result mode"
   status: 'idle' | 'loading';
   error: string | null;
 }
 ```
 
-- **Rendering:** the display shows `[left, symbol(operator), right]`, with empty parts filtered out and the rest joined by single spaces. With a unary operation it shows `√{left}` or `{left}%`. In result mode it appends ` = {formatResult(result)}`.
-- **Spaces exist only in rendering.** The data is never a string that needs parsing.
-- **Unary minus:** it is just a `-` prefix on a slot's string.
-- **Active slot:** `right` if `operator` is set, otherwise `left`.
-- **Complete number:** a slot is complete when it is non-empty and not just `-`.
+- **Expression kind:** TypeScript distinguishes unary from binary fields. A unary expression has one operand and cannot retain a binary operator or right operand.
+- **Rendering:** binary expressions show `[left, symbol(operator), right]`, with empty parts omitted. Unary expressions show `√(operand)` or `operand%`; an empty square root shows `√()`. A successful result appends ` = {formatResult(result)}`.
+- **Active operand:** the unary `operand`, or binary `right` when an operator is selected, otherwise `left`.
+- **Complete number:** a non-empty operand other than `-`. A trailing decimal point is allowed.
+- **Unary minus:** a `-` prefix on the operand string. Spaces and parentheses exist only in rendering; no expression parsing is needed.
 
 ### Input Rules
 
-| Key / Button               | Rule                                                                                       |
-|----------------------------|--------------------------------------------------------------------------------------------|
-| `0`–`9`                    | Append to the active slot. A lone leading `0` is replaced (`0`→`5`, `-0`→`-5`). Typing is capped at 15 digits per number. Ignored while `unary` is set. |
-| `.`                        | Append if the slot has no `.`. An empty slot becomes `0.`, and `-` becomes `-0.`. Ignored while `unary` is set. |
-| `±`                        | Toggle the `-` prefix of the active slot. An empty slot becomes `-`. Ignored while `unary` is set. |
-| `-` key / `−` button       | If the active slot is empty, it becomes `-` (unary minus). Otherwise it acts as the subtract operator (next row). |
-| `+` `−` `×` `÷` `xʸ` (`*` `/` `^`) | If `left` isn't complete, or `right` is just `-`: error "Enter a number first". If `right` is empty: set or replace the operation (this also replaces a chosen `√` or `%`). If `right` is complete: error **"Calculate the current operation first"**, and state is unchanged. |
-| `√` `%` (`@` `%`)          | Postfix: they apply to the number already typed in `left`. If `left` isn't complete, or `right` is just `-`: error "Enter a number first". If `right` is empty: set or replace the operation (this also replaces a chosen binary operator). If `right` is complete: error **"√ and % work on a single number"**, and state is unchanged. Nothing is sent until `=`. |
-| `Enter`, `=`               | If `left` is complete and either `unary` is set or `operator` and `right` are complete: send the request. Otherwise: error "Incomplete expression". |
-| `Backspace`, `⌫`           | Delete backwards: `unary`, then the last char of `right`, then the `operator`, then the last char of `left`. |
-| `Escape`, `AC`             | Reset everything.                                                                          |
+| Key / Button | Rule |
+|--------------|------|
+| `0`–`9` | Append to the active operand, including a pending unary operand. A lone leading `0` is replaced (`0` → `5`, `-0` → `-5`). Typing is capped at 15 digits per number. |
+| `.` | Append if there is no decimal point. An empty operand becomes `0.`, and `-` becomes `-0.`. Works in unary and binary expressions. |
+| `±` | Toggle the active operand's sign, including after a unary error. An empty operand becomes `-`. |
+| `-` key / `−` button | On an empty active operand, enter a unary minus; on a lone `-`, do nothing. Otherwise select subtraction as below. |
+| `+` `−` `×` `÷` `xʸ` (`*` `/` `^`) | Require a complete first operand and no incomplete signed right operand. With one operand, set or replace the operation, including a pending unary operation. With a complete binary right operand, show "Calculate the current operation first". |
+| `√` (`@`) | Select square root before or after entering the operand. The operand stays editable until equals. A complete binary right operand is rejected with "√ and % work on a single number"; a right operand of `-` gives "Enter a number first". |
+| `%` | Require a complete single operand when selecting percentage. Set or replace the operation; the operand stays editable. A binary right operand is rejected as for square root. |
+| `Enter`, `=` | Submit only a complete unary expression or a binary expression with two complete operands and an operator. Otherwise show "Incomplete expression". Enter on a focused keypad button retains native button activation. |
+| `Backspace`, `⌫` | For unary input, remove the operation first and retain the operand as binary `left` with no operator. For binary input, delete backwards across `right`, `operator`, and `left`. |
+| `Escape`, `AC` | Reset everything. |
+
+Examples:
+
+- `√ 100 =` and `100 √ =` both produce `√(100) = 10`.
+- `1 √ 00 =` edits the operand to `100`, then produces `10`.
+- `10 % 0 =` edits the operand to `100`, then produces `1`.
+- `10 % × 200 =` replaces percent with multiplication and produces `2000`; no percentage request is sent.
+- `10 % =`, then `× 200 =`, calculates percentage first and produces `20`.
 
 Other rules:
 
-- **No-op keys:** keys that can't apply are ignored, e.g. a second `.`, a 16th digit, `-` on a slot that is already `-`, or a digit after `√`/`%`.
-- **Only `=` and Enter send a request.** Choosing an operation, binary or unary, never sends one.
-- **Request body:** `{ a: Number(left), b: Number(right) }`, sent to `/api/v1/{operator}`; with a unary operation, `{ a: Number(left) }`, sent to `/api/v1/{unary}`.
-- **Clearing errors:** an error is cleared by the next accepted key.
+- **No-op keys:** a second `.`, a 16th digit, or `-` on a lone `-` leaves the state unchanged.
+- **Only explicit evaluation sends a request.** Selecting or replacing an operation never sends one.
+- **Request conversion:** `toRequest(expression)` produces `{ operation, a, b }` for binary operations or `{ operation, a }` for unary operations. It returns `null` for incomplete expressions instead of converting empty operands to zero. The API client sends the operands to `/api/v1/{operation}`.
+- **Clearing errors:** an accepted input clears the error; an ignored key preserves it.
 
 ### Request and Result Mode
 
-- **`loading`:** all keys are ignored and the keypad is disabled. After 10 seconds the request is aborted, input is preserved, the keypad is re-enabled, and "Request timed out. Please try again." is shown. Cleanup cancels the timer and request; late responses cannot overwrite newer state.
-- **Success:** `result` is set, and the display shows `12 ÷ 4 = 3` (or `√9 = 3`, `70% = 0.7`).
-- **API error:** the slots (including `unary`) are kept unchanged and the message is shown in the error area. The user fixes the input with `⌫` and presses `=` again.
+- **`loading`:** all keys are ignored and the keypad is disabled. After 10 seconds the request is aborted, the expression is preserved, the keypad is re-enabled, and "Request timed out. Please try again." is shown. Cleanup cancels the timer and request; late responses cannot overwrite newer state.
+- **Success:** retain the expression and raw result, displaying e.g. `12 ÷ 4 = 3`, `√(9) = 3`, or `70% = 0.7`.
+- **API error:** preserve the expression and show the error separately. Unary operands can be edited directly using digits, decimal point, and sign toggle; Backspace removes the unary operation first. Press equals to retry.
 - **Result mode**, for the next key:
-  - **Digit or `.`:** starts fresh, with that key as the start of `left`.
-  - **Operator, including `-`:** `left = resultToOperand(result)`, and the operator is set.
-  - **`√` or `%`:** `left = resultToOperand(result)`, and `unary` is set. It still waits for `=`.
-  - **`±`:** `left` becomes the negated result.
-  - **`⌫`:** `left = resultToOperand(result)`. The user then keeps editing the result.
+  - **Digit or `.`:** start a new binary expression with that key as the beginning of `left`.
+  - **Binary operator:** create a binary expression with `left = resultToOperand(result)` and the chosen operator.
+  - **`√` or `%`:** create an editable unary expression with `operand = resultToOperand(result)` and the chosen operator. Wait for equals.
+  - **`±`:** create a binary expression with the sign-toggled result as `left` and no operator.
+  - **`⌫`:** create a binary expression with the result as `left` and no operator; subsequent Backspace presses edit it.
   - **`AC`:** reset.
+  - **Equals:** leave the displayed result unchanged.
 
 ### Result Formatting
 
@@ -203,7 +214,7 @@ The result is stored as the raw API number. When reused or edited, `resultToOper
 
 ### Why Structured Input
 
-The per-operation endpoints take exactly `a op b`. Building that shape directly removes any need for tokenizing, spacing rules, or unary-minus disambiguation. A free-text field would mean building a string only to parse it back. Full expressions would need precedence, parsing, and an `/evaluate` endpoint, which is out of scope.
+The per-operation endpoints take either two operands (`a op b`) or one operand (`op a`). Building that shape directly removes any need for tokenizing, spacing rules, or unary-minus disambiguation. A free-text field would mean building a string only to parse it back. Full expressions would need precedence, parsing, and an `/evaluate` endpoint, which is out of scope.
 
 ## 5. Testing
 
@@ -234,7 +245,7 @@ The repo uses a multi-stage `Dockerfile`:
 ## 7. Phase 2: Power, Square Root, Percent
 
 - **Power** (`xʸ`, `^`) is a binary operation like the others: `2 ^ 10 = 1024`. Results without a real value (`0 ^ -1`, `(-8) ^ (1/3)`) return `UNDEFINED_RESULT`; overflow returns `RESULT_OUT_OF_RANGE`. `0 ^ 0` is `1`.
-- **Square root** (`√`, `@`) and **percent** (`%`) are unary operations on `left`. They are chosen after the number, like a binary operator, and are sent with `=`: `9 √ =` shows `√9 = 3`.
+- **Square root** (`√`, `@`) and **percent** (`%`) are unary operations on one editable operand. Square root can be selected before or after entering the operand; percentage is selected after a number. Both wait for equals: `√ 9 =` and `9 √ =` show `√(9) = 3`.
 - **Percent is plain `a ÷ 100`**: `70% = 0.7`. Calculator-style percent (`200 + 10% = 220`) is not supported. The same value takes steps instead: `10 % =` gives `0.1`, then `× 200 =` gives `20`.
 - **No mixing:** an expression has exactly one operation, binary or unary. `200 + 10%` is rejected with "√ and % work on a single number".
 
@@ -243,9 +254,10 @@ The repo uses a multi-stage `Dockerfile`:
 1. Results are rounded for display to at most 12 significant digits, with trailing zeros dropped; raw API precision is preserved for chaining.
 2. `±` is included in phase 1.
 3. `DIVISION_BY_ZERO` and `RESULT_OUT_OF_RANGE` return `422`.
-4. Input is a keypad that writes to structured slots (`left`, `operator`, `right`). There is no free-text field and no parsing.
+4. Input is a keypad that writes to a discriminated union of unary and binary expressions. There is no free-text field and no expression parsing.
 5. Exactly one operation is allowed per request. Pressing an operator while `right` is filled shows "Calculate the current operation first" instead of chaining.
-6. `√` and `%` are unary operations chosen after `left` (postfix), and only `=`/Enter sends the request.
+6. `√` allows prefix or postfix selection; `%` is selected after a number. Their operands remain editable, and only explicit evaluation sends a request.
 7. Percent is `a ÷ 100`; calculator-style percent is not supported.
 8. Unary and binary operations are never mixed in one expression; the result of one can be reused by the next.
 9. Power returns `UNDEFINED_RESULT` (422) when there is no real result.
+10. Selecting another operation while there is only one operand replaces it without calculating. Backspace removes a unary operation before editing its operand.
